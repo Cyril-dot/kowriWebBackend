@@ -46,7 +46,8 @@ public class SecurityConfig {
                                 "/api/admin/login",
                                 "/api/users/register",
                                 "/api/users/login",
-                                "/api/v1/payment/webhook"
+                                "/api/v1/payment/webhook",
+                                "/ping/**"
                         ).permitAll()
                         .requestMatchers("/api/v1/payment/webhook").permitAll()
                         .anyRequest().authenticated()
