@@ -28,22 +28,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final UserRepo userRepo;
     private final AdminRepo adminRepo;
 
-    private static final List<String> PUBLIC_AUTH_ENDPOINTS = Arrays.asList(
-            "/api/auth/register",
-            "/api/auth/login",
-            "/api/auth/refresh",
-            "/api/v1/auth",
-            "/api/v1/admin/login",   // ← add this so login doesn't need a token
-            "/api/v1/admin/create"   // ← add this so registration doesn't need a token
+    // ✅ FIXED: match your REAL endpoints
+    private static final List<String> PUBLIC_ENDPOINTS = Arrays.asList(
+            "/api/users/register",
+            "/api/users/login",
+            "/api/admin/register",
+            "/api/admin/login",
+            "/api/v1/payment/webhook",
+            "/ping"
     );
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        if (PUBLIC_AUTH_ENDPOINTS.stream().anyMatch(path::startsWith)) return true;
-        return path.startsWith("/login")
-                || path.startsWith("/api/test/")
-                || path.startsWith("/actuator/")
+
+        boolean isPublic = PUBLIC_ENDPOINTS.stream().anyMatch(path::startsWith);
+
+        if (isPublic) {
+            log.info("🟢 Skipping JWT filter for public endpoint: {}", path);
+            return true;
+        }
+
+        return path.startsWith("/actuator/")
                 || path.startsWith("/ws/")
                 || path.startsWith("/ws-meeting/")
                 || path.equals("/favicon.ico")
@@ -56,6 +62,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain filterChain)
             throws ServletException, IOException {
 
+        String path = request.getRequestURI();
+        log.info("🔐 Processing JWT for: {}", path);
+
         var existingAuth = SecurityContextHolder.getContext().getAuthentication();
         if (existingAuth != null
                 && existingAuth.isAuthenticated()
@@ -66,7 +75,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             String header = request.getHeader("Authorization");
+
+            // ✅ No token → just continue (DON'T BLOCK)
             if (header == null || !header.startsWith("Bearer ")) {
+                log.warn("⚠️ No JWT token found for request: {}", path);
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -75,27 +87,30 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String email = tokenService.getEmailFromAccessToken(token);
             String role  = tokenService.getRoleFromAccessToken(token);
 
-            log.debug("🔍 Token role claim: '{}' for email: {}", role, email);
+            log.info("🔍 Token parsed → Email: {}, Role: {}", email, role);
 
             UserDetails userDetails;
 
-            // ✅ FIXED: was "SELLER" — must match whatever Admin.getRole().name() returns
             if ("ADMIN".equals(role) || "SELLER".equals(role)) {
                 var adminOptional = adminRepo.findByEmail(email);
+
                 if (adminOptional.isEmpty()) {
-                    log.warn("❌ No admin found for email: {}", email);
+                    log.warn("❌ Admin not found: {}", email);
                     filterChain.doFilter(request, response);
                     return;
                 }
+
                 userDetails = new AdminPrincipal(adminOptional.get());
 
             } else {
                 var userOptional = userRepo.findByEmail(email);
+
                 if (userOptional.isEmpty()) {
-                    log.warn("❌ No user found for email: {}", email);
+                    log.warn("❌ User not found: {}", email);
                     filterChain.doFilter(request, response);
                     return;
                 }
+
                 userDetails = new UserPrincipal(userOptional.get());
             }
 
@@ -104,7 +119,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             userDetails, null, userDetails.getAuthorities());
 
             SecurityContextHolder.getContext().setAuthentication(authToken);
-            log.info("✅ Authentication successful for: {}", email);
+
+            log.info("✅ Authenticated successfully: {}", email);
 
         } catch (Exception e) {
             log.error("💥 JWT authentication error: {}", e.getMessage(), e);
