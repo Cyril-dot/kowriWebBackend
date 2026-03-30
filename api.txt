@@ -1,0 +1,195 @@
+# Kwori Web Site API Documentation
+
+This document provides information about the API endpoints, request/response formats, DTOs, and entities.
+
+---
+
+## 1. Authentication & User Management
+
+### Register User
+- **Endpoint:** `POST /api/users/register`
+- **Request Body (CreateUserRequest):**
+  ```json
+  {
+    "fullName": "John Doe",
+    "email": "john.doe@example.com",
+    "password": "password123",
+    "confirmPassword": "password123",
+    "phoneNumber": "+1234567890"
+  }
+  ```
+- **Response (UserResponse):**
+  ```json
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "fullName": "John Doe",
+    "email": "john.doe@example.com",
+    "phoneNumber": "+1234567890",
+    "role": "USER",
+    "createdAt": "2023-10-27T10:00:00",
+    "token": "eyJhbGciOiJIUzI1...",
+    "refreshToken": "eyJhbGciOiJIUzI1..."
+  }
+  ```
+
+### Login User
+- **Endpoint:** `POST /api/users/login`
+- **Request Body (LoginRequest):**
+  ```json
+  {
+    "email": "john.doe@example.com",
+    "password": "password123"
+  }
+  ```
+- **Response (LoginResponse):**
+  ```json
+  {
+    "token": "eyJhbGciOiJIUzI1...",
+    "refreshToken": "eyJhbGciOiJIUzI1...",
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "fullName": "John Doe",
+    "email": "john.doe@example.com",
+    "role": "USER"
+  }
+  ```
+
+### Update User Profile
+- **Endpoint:** `PUT /api/users/{id}`
+- **Request Body (UpdateUserRequest):**
+  ```json
+  {
+    "fullName": "John Updated",
+    "email": "john.updated@example.com",
+    "phoneNumber": "+0987654321",
+    "currentPassword": "password123",
+    "newPassword": "newpassword123",
+    "confirmNewPassword": "newpassword123"
+  }
+  ```
+- **Response (UserResponse):** Same as Register User response.
+
+---
+
+## 2. Admin Management
+
+### Login Admin
+- **Endpoint:** `POST /api/admin/login`
+- **Request Body (AdminLoginRequest):**
+  ```json
+  {
+    "email": "admin@example.com",
+    "password": "adminpassword"
+  }
+  ```
+- **Response (AdminLoginResponse):**
+  ```json
+  {
+    "adminId": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
+    "fullName": "System Admin",
+    "email": "admin@example.com",
+    "role": "ADMIN",
+    "token": "eyJhbGciOiJIUzI1...",
+    "refreshToken": "eyJhbGciOiJIUzI1..."
+  }
+  ```
+
+---
+
+## 3. Deposits
+
+### Submit Deposit (User)
+- **Endpoint:** `POST /api/users/{userId}/deposits`
+- **Content-Type:** `multipart/form-data`
+- **Request Part `data` (DepositRequest):**
+  ```json
+  {
+    "tokenId": "TOKEN123",
+    "secretCode": "SECRET456",
+    "walletId": "WALLET789",
+    "amount": 100.00
+  }
+  ```
+- **Request Part `proof`:** Image file (screenshot).
+- **Response (DepositResponse):**
+  ```json
+  {
+    "id": "d1e2f3g4-...",
+    "tokenId": "TOKEN123",
+    "secretCode": "SECRET456",
+    "walletId": "WALLET789",
+    "amount": 100.00,
+    "proofImageUrl": "http://storage.com/proof.png",
+    "status": "PENDING",
+    "createdAt": "2023-10-27T11:00:00",
+    "updatedAt": "2023-10-27T11:00:00"
+  }
+  ```
+
+### Approve/Reject Deposit (Admin)
+- **Endpoint:** `PATCH /api/admin/deposits/{depositId}/status?status=APPROVED`
+- **Response (DepositResponse):** Same as Deposit response with updated status.
+
+---
+
+## 4. Withdrawals
+
+### Submit Withdrawal (User)
+- **Endpoint:** `POST /api/users/{userId}/withdrawals`
+- **Request Body (WithdrawalRequest):**
+  ```json
+  {
+    "accountName": "John Doe",
+    "agentService": "MOMO_AGENT",
+    "networkProvider": "MTN",
+    "accountNumber": "0240000000",
+    "amount": 2000.00
+  }
+  ```
+- **Response (WithdrawalResponse):**
+  ```json
+  {
+    "id": "w1x2y3z4-...",
+    "accountName": "John Doe",
+    "agentService": "MOMO_AGENT",
+    "networkProvider": "MTN",
+    "accountNumber": "0240000000",
+    "amount": 2000.00,
+    "status": "PENDING",
+    "createdAt": "2023-10-27T12:00:00",
+    "updatedAt": "2023-10-27T12:00:00"
+  }
+  ```
+
+---
+
+## 5. Entities and DTOs Summary
+
+### Entity: User
+- `UUID id`
+- `String fullName`
+- `String email` (unique)
+- `String password`
+- `String phoneNumber` (unique)
+- `Role role` (USER, ADMIN)
+- `BigDecimal balance`
+- `LocalDateTime createdAt/updatedAt`
+
+### Entity: Deposit
+- `UUID id`
+- `String tokenId`
+- `String secretCode`
+- `String walletId`
+- `BigDecimal amount`
+- `String proofImageUrl`
+- `DepositStatus status` (PENDING, APPROVED, REJECTED)
+- `User user` (Owner)
+
+### Entity: Withdrawal
+- `UUID id`
+- `String accountName`
+- `AgentService agentService` (MOMO_AGENT, BANK_TRANSFER)
+- `NetworkProvider networkProvider` (MTN, VODAFONE, AIRTEL, TIGO)
+- `String accountNumber`
+- `BigDecimal amount`
+- `WithdrawalStatus status` (PENDING, APPROVED, REJECTED)
+- `User user` (Owner)
