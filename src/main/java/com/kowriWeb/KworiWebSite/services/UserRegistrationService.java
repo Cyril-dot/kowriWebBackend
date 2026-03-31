@@ -10,8 +10,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import com.kowriWeb.KworiWebSite.dto.UserFinancialSummaryResponse;
+import com.kowriWeb.KworiWebSite.entity.repos.DepositRepo;
+import com.kowriWeb.KworiWebSite.entity.repos.WithdrawalRepo;
+import com.kowriWeb.KworiWebSite.entity.DepositStatus;
+import com.kowriWeb.KworiWebSite.entity.WithdrawalStatus;
 
 @Service
 @RequiredArgsConstructor
@@ -21,6 +27,8 @@ public class UserRegistrationService {
     private final PasswordEncoder passwordEncoder;
     private final UserRepo userRepo;
     private final TokenService tokenService;
+    private final DepositRepo depositRepo;
+    private final WithdrawalRepo withdrawalRepo;
 
 
     public UserResponse createUser(CreateUserRequest request) {
@@ -97,6 +105,42 @@ public class UserRegistrationService {
                 .phoneNumber(user.getPhoneNumber())
                 .createdAt(user.getCreatedAt())
                 .role(user.getRole())
+                .balance(user.getBalance())   // ✅ ADD THIS
+                .build();
+    }
+
+    public UserFinancialSummaryResponse getUserFinancialSummary(UUID userId) {
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        BigDecimal totalDeposited = depositRepo
+                .findByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .filter(d -> d.getStatus() == DepositStatus.APPROVED)
+                .map(d -> d.getAmount() != null ? d.getAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalRewards = depositRepo
+                .findByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .filter(d -> d.getStatus() == DepositStatus.APPROVED)
+                .map(d -> d.getRewardAmount() != null ? d.getRewardAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalWithdrawn = withdrawalRepo
+                .findByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .filter(w -> w.getStatus() == WithdrawalStatus.APPROVED)
+                .map(w -> w.getAmount() != null ? w.getAmount() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        log.info("Financial summary fetched for user: {}", user.getEmail());
+
+        return UserFinancialSummaryResponse.builder()
+                .balance(user.getBalance())
+                .totalDeposited(totalDeposited)
+                .totalRewardsEarned(totalRewards)
+                .totalWithdrawn(totalWithdrawn)
                 .build();
     }
 

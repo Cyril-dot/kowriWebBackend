@@ -97,4 +97,10 @@ public class UserController {
                     .body(Map.of("message", "Update failed. Please try again."));
         }
     }
+
+
+    @GetMapping("/{id}/financial-summary")
+    public ResponseEntity<UserFinancialSummaryResponse> getFinancialSummary(@PathVariable UUID id) {
+        return ResponseEntity.ok(userRegistrationService.getUserFinancialSummary(id));
+    }
 }
