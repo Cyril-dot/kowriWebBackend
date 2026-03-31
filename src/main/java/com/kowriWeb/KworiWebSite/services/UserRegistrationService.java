@@ -24,16 +24,13 @@ public class UserRegistrationService {
 
 
     public UserResponse createUser(CreateUserRequest request) {
+        // Check for duplicate email (keep this one for data integrity)
         if (userRepo.findByEmail(request.getEmail()).isPresent()) {
             throw new RuntimeException("Email already exists");
         }
-        if (userRepo.findByPhoneNumber(request.getPhoneNumber()).isPresent()) {
-            throw new RuntimeException("Phone number already exists");
-        }
 
-        if (!request.getPassword().equals(request.getConfirmPassword())) {
-            throw new RuntimeException("Passwords do not match");
-        }
+        // REMOVED: phone number duplicate check
+        // REMOVED: password confirmation check
 
         User user = User.builder()
                 .fullName(request.getFullName())
@@ -56,7 +53,7 @@ public class UserRegistrationService {
                 .email(savedUser.getEmail())
                 .phoneNumber(savedUser.getPhoneNumber())
                 .createdAt(savedUser.getCreatedAt())
-                .role(savedUser.getRole())          // Role is com.kowriWeb…entity.Role
+                .role(savedUser.getRole())
                 .token(accessToken)
                 .refreshToken(refreshToken)
                 .build();

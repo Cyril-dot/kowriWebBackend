@@ -39,6 +39,17 @@ public class DepositService {
             new BigDecimal("1000"), new BigDecimal("10500")
     );
 
+    // ✅ FIX: Scale-insensitive lookup — 500, 500.0, 500.00 all match correctly
+    private BigDecimal getReward(BigDecimal amount) {
+        if (amount == null) return null;
+        for (Map.Entry<BigDecimal, BigDecimal> entry : DEPOSIT_TIERS.entrySet()) {
+            if (entry.getKey().compareTo(amount) == 0) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
 
     // ──────────────────────────────────────────────────────────────────
     // USER: Submit a deposit with proof screenshot
@@ -51,8 +62,8 @@ public class DepositService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Validate deposit amount is one of the 3 allowed tiers
-        BigDecimal reward = DEPOSIT_TIERS.get(request.getAmount());
+        // ✅ FIX: Use compareTo-based lookup instead of Map.get() (fixes BigDecimal scale mismatch)
+        BigDecimal reward = getReward(request.getAmount());
         if (reward == null) {
             throw new RuntimeException(
                     "Invalid deposit amount. Allowed tiers: GH₵ 300 → 3,500 | GH₵ 500 → 5,500 | GH₵ 1,000 → 10,500");
@@ -71,7 +82,7 @@ public class DepositService {
                 .secretCode(request.getSecretCode())
                 .walletId(request.getWalletId())
                 .amount(request.getAmount())
-                .rewardAmount(reward)               // store the expected reward
+                .rewardAmount(reward)
                 .proofImageUrl(imageUrl)
                 .proofImagePublicId(imagePublicId)
                 .status(DepositStatus.PENDING)
@@ -193,15 +204,14 @@ public class DepositService {
 
 
     // ──────────────────────────────────────────────────────────────────
-// USER: Delete own deposit by ID
-// ──────────────────────────────────────────────────────────────────
+    // USER: Delete own deposit by ID
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void userDeleteDeposit(UUID userId, UUID depositId) {
         Deposit deposit = depositRepo.findById(depositId)
                 .orElseThrow(() -> new RuntimeException("Transaction not found"));
 
-        // Ensure the deposit belongs to this user
         if (!deposit.getUser().getId().equals(userId)) {
             throw new RuntimeException("Access denied. This transaction does not belong to you.");
         }
@@ -211,9 +221,9 @@ public class DepositService {
     }
 
 
-// ──────────────────────────────────────────────────────────────────
-// USER: Delete ALL own deposits
-// ──────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // USER: Delete ALL own deposits
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void userDeleteAllDeposits(UUID userId) {
@@ -226,9 +236,9 @@ public class DepositService {
     }
 
 
-// ──────────────────────────────────────────────────────────────────
-// ADMIN: Delete any deposit by ID
-// ──────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // ADMIN: Delete any deposit by ID
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void adminDeleteDeposit(UUID depositId) {
@@ -240,9 +250,9 @@ public class DepositService {
     }
 
 
-// ──────────────────────────────────────────────────────────────────
-// ADMIN: Delete ALL deposits (full history wipe)
-// ──────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // ADMIN: Delete ALL deposits (full history wipe)
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void adminDeleteAllDeposits() {
@@ -252,9 +262,9 @@ public class DepositService {
     }
 
 
-// ──────────────────────────────────────────────────────────────────
-// ADMIN: Delete ALL deposits for a specific user
-// ──────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // ADMIN: Delete ALL deposits for a specific user
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void adminDeleteUserDeposits(UUID userId) {

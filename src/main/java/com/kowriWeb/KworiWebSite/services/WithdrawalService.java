@@ -46,14 +46,24 @@ public class WithdrawalService {
                     "Minimum withdrawal amount is GH₵ " + MINIMUM_WITHDRAWAL.toPlainString());
         }
 
-        // 2. Check user has sufficient balance — reject immediately if not
+        // 2. Block if user already has a pending withdrawal (prevents race condition)
+        boolean hasPendingWithdrawal = withdrawalRepo
+                .findByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .anyMatch(w -> w.getStatus() == WithdrawalStatus.PENDING);
+        if (hasPendingWithdrawal) {
+            throw new RuntimeException(
+                    "You already have a pending withdrawal. Please wait for it to be processed.");
+        }
+
+        // 3. Check user has sufficient balance — reject immediately if not
         if (user.getBalance().compareTo(request.getAmount()) < 0) {
             throw new RuntimeException(
                     "Insufficient balance. Your current balance is GH₵ "
-                    + user.getBalance().toPlainString());
+                            + user.getBalance().toPlainString());
         }
 
-        // 3. Reserve (deduct) the amount immediately so it can't be double-spent
+        // 4. Reserve (deduct) the amount immediately so it can't be double-spent
         user.setBalance(user.getBalance().subtract(request.getAmount()));
         userRepo.save(user);
 
@@ -126,7 +136,7 @@ public class WithdrawalService {
 
     @Transactional
     public WithdrawalResponse updateWithdrawalStatus(UUID withdrawalId,
-                                                      WithdrawalStatus newStatus) {
+                                                     WithdrawalStatus newStatus) {
         Withdrawal withdrawal = withdrawalRepo.findById(withdrawalId)
                 .orElseThrow(() -> new RuntimeException("Withdrawal not found"));
 
@@ -134,6 +144,24 @@ public class WithdrawalService {
         if (withdrawal.getStatus() != WithdrawalStatus.PENDING) {
             throw new RuntimeException(
                     "Withdrawal is already " + withdrawal.getStatus() + ". Cannot update again.");
+        }
+
+        // Guard: re-validate balance before approving — catches cases where the
+        // withdrawal was submitted before a deposit was credited (balance went negative)
+        if (newStatus == WithdrawalStatus.APPROVED) {
+            User user = withdrawal.getUser();
+            if (user.getBalance().compareTo(BigDecimal.ZERO) < 0) {
+                // Balance is negative — refund and auto-reject instead of approving
+                user.setBalance(user.getBalance().add(withdrawal.getAmount()));
+                userRepo.save(user);
+                withdrawal.setStatus(WithdrawalStatus.REJECTED);
+                withdrawal.setUpdatedAt(LocalDateTime.now());
+                withdrawalRepo.save(withdrawal);
+                log.warn("Approval blocked — negative balance detected. Auto-rejected & refunded: user={} +{} | new balance={}",
+                        user.getId(), withdrawal.getAmount(), user.getBalance());
+                throw new RuntimeException(
+                        "Cannot approve: user has insufficient balance. Withdrawal has been auto-rejected and the amount refunded.");
+            }
         }
 
         withdrawal.setStatus(newStatus);
@@ -185,20 +213,18 @@ public class WithdrawalService {
 
 
     // ──────────────────────────────────────────────────────────────────
-// USER: Delete own withdrawal by ID
-// ──────────────────────────────────────────────────────────────────
+    // USER: Delete own withdrawal by ID
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void userDeleteWithdrawal(UUID userId, UUID withdrawalId) {
         Withdrawal withdrawal = withdrawalRepo.findById(withdrawalId)
                 .orElseThrow(() -> new RuntimeException("Withdrawal not found"));
 
-        // Ensure the withdrawal belongs to this user
         if (!withdrawal.getUser().getId().equals(userId)) {
             throw new RuntimeException("Access denied. This withdrawal does not belong to you.");
         }
 
-        // If still PENDING, refund the reserved amount back before deleting
         if (withdrawal.getStatus() == WithdrawalStatus.PENDING) {
             User user = withdrawal.getUser();
             user.setBalance(user.getBalance().add(withdrawal.getAmount()));
@@ -212,9 +238,9 @@ public class WithdrawalService {
     }
 
 
-// ──────────────────────────────────────────────────────────────────
-// USER: Delete ALL own withdrawals
-// ──────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // USER: Delete ALL own withdrawals
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void userDeleteAllWithdrawals(UUID userId) {
@@ -223,7 +249,6 @@ public class WithdrawalService {
 
         List<Withdrawal> withdrawals = withdrawalRepo.findByUserIdOrderByCreatedAtDesc(userId);
 
-        // Refund any that are still PENDING before wiping
         for (Withdrawal w : withdrawals) {
             if (w.getStatus() == WithdrawalStatus.PENDING) {
                 User user = w.getUser();
@@ -239,16 +264,15 @@ public class WithdrawalService {
     }
 
 
-// ──────────────────────────────────────────────────────────────────
-// ADMIN: Delete any withdrawal by ID
-// ──────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // ADMIN: Delete any withdrawal by ID
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void adminDeleteWithdrawal(UUID withdrawalId) {
         Withdrawal withdrawal = withdrawalRepo.findById(withdrawalId)
                 .orElseThrow(() -> new RuntimeException("Withdrawal not found"));
 
-        // If still PENDING, refund the reserved amount before deleting
         if (withdrawal.getStatus() == WithdrawalStatus.PENDING) {
             User user = withdrawal.getUser();
             user.setBalance(user.getBalance().add(withdrawal.getAmount()));
@@ -262,15 +286,14 @@ public class WithdrawalService {
     }
 
 
-// ──────────────────────────────────────────────────────────────────
-// ADMIN: Delete ALL withdrawals (full history wipe)
-// ──────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // ADMIN: Delete ALL withdrawals (full history wipe)
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void adminDeleteAllWithdrawals() {
         List<Withdrawal> all = withdrawalRepo.findAllByOrderByCreatedAtDesc();
 
-        // Refund any still-PENDING before wiping
         for (Withdrawal w : all) {
             if (w.getStatus() == WithdrawalStatus.PENDING) {
                 User user = w.getUser();
@@ -286,9 +309,9 @@ public class WithdrawalService {
     }
 
 
-// ──────────────────────────────────────────────────────────────────
-// ADMIN: Delete ALL withdrawals for a specific user
-// ──────────────────────────────────────────────────────────────────
+    // ──────────────────────────────────────────────────────────────────
+    // ADMIN: Delete ALL withdrawals for a specific user
+    // ──────────────────────────────────────────────────────────────────
 
     @Transactional
     public void adminDeleteUserWithdrawals(UUID userId) {
@@ -297,7 +320,6 @@ public class WithdrawalService {
 
         List<Withdrawal> withdrawals = withdrawalRepo.findByUserIdOrderByCreatedAtDesc(userId);
 
-        // Refund any still-PENDING before wiping
         for (Withdrawal w : withdrawals) {
             if (w.getStatus() == WithdrawalStatus.PENDING) {
                 User user = w.getUser();
