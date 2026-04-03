@@ -36,7 +36,6 @@ public class Deposit {
     @Builder.Default
     private DepositStatus status = DepositStatus.PENDING;
 
-    @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private DepositType depositType;
 
