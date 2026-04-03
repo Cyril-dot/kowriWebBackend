@@ -1,8 +1,9 @@
 package com.kowriWeb.KworiWebSite.controllers;
 
+import com.kowriWeb.KworiWebSite.dto.AdminCreditRequest;
 import com.kowriWeb.KworiWebSite.dto.DepositRequest;
 import com.kowriWeb.KworiWebSite.dto.DepositResponse;
-import com.kowriWeb.KworiWebSite.entity.DepositStatus;
+import com.kowriWeb.KworiWebSite.dto.StatusUpdateRequest;
 import com.kowriWeb.KworiWebSite.services.DepositService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -29,7 +30,9 @@ public class DepositController {
 
     /**
      * POST /api/users/{userId}/deposits
-     * Submit a new deposit with proof screenshot.
+     * Submit a new deposit (FIXED or FLEXIBLE) with proof screenshot.
+     * FIXED:    amount must match a tier — reward is auto-set.
+     * FLEXIBLE: any amount — admin sets the reward on approval.
      */
     @PostMapping(
             value = "/api/users/{userId}/deposits",
@@ -112,16 +115,35 @@ public class DepositController {
     }
 
     /**
-     * PATCH /api/admin/deposits/{depositId}/status?status=APPROVED
+     * PATCH /api/admin/deposits/{depositId}/status
      * Admin approves or rejects a deposit.
+     * FIXED:    just send { "status": "APPROVED" } — reward already stored.
+     * FLEXIBLE: send { "status": "APPROVED", "rewardAmount": 1500 } — reward is required.
+     * REJECTED: send { "status": "REJECTED" } — works for both types.
      */
     @PatchMapping("/api/admin/deposits/{depositId}/status")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<DepositResponse> updateStatus(
             @PathVariable UUID depositId,
-            @RequestParam DepositStatus status
+            @RequestBody StatusUpdateRequest request
     ) {
-        return ResponseEntity.ok(depositService.updateDepositStatus(depositId, status));
+        return ResponseEntity.ok(depositService.updateDepositStatus(depositId, request));
+    }
+
+    /**
+     * POST /api/admin/deposits/credit
+     * Admin directly credits any amount to a user's balance immediately.
+     * No proof image, no approval flow — balance is updated instantly.
+     * Creates an ADMIN_CREDIT record for full history tracking.
+     * Body: { "userId": "...", "amount": 500.00, "note": "bonus credit" }
+     */
+    @PostMapping("/api/admin/deposits/credit")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<DepositResponse> adminCreditUser(
+            @RequestBody AdminCreditRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(depositService.adminCreditUser(request));
     }
 
     /**

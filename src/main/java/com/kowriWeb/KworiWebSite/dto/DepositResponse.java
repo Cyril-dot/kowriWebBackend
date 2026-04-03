@@ -7,6 +7,7 @@
 package com.kowriWeb.KworiWebSite.dto;
 
 import com.kowriWeb.KworiWebSite.entity.DepositStatus;
+import com.kowriWeb.KworiWebSite.entity.DepositType;
 import lombok.Builder;
 import lombok.Data;
 
@@ -33,5 +34,7 @@ public class DepositResponse {
     private String userEmail;
 
     private BigDecimal rewardAmount;
-    private BigDecimal userBalance;   // shown in admin view
+    private BigDecimal userBalance;
+
+    private DepositType depositType;
 }

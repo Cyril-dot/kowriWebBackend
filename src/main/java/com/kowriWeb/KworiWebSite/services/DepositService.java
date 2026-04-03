@@ -1,10 +1,7 @@
 package com.kowriWeb.KworiWebSite.services;
 
-import com.kowriWeb.KworiWebSite.dto.DepositRequest;
-import com.kowriWeb.KworiWebSite.dto.DepositResponse;
-import com.kowriWeb.KworiWebSite.entity.Deposit;
-import com.kowriWeb.KworiWebSite.entity.DepositStatus;
-import com.kowriWeb.KworiWebSite.entity.User;
+import com.kowriWeb.KworiWebSite.dto.*;
+import com.kowriWeb.KworiWebSite.entity.*;
 import com.kowriWeb.KworiWebSite.entity.repos.DepositRepo;
 import com.kowriWeb.KworiWebSite.entity.repos.UserRepo;
 import lombok.RequiredArgsConstructor;
@@ -32,15 +29,14 @@ public class DepositService {
 
     private static final String CLOUDINARY_FOLDER = "kowri/deposit-proofs";
 
-    // ── Tier map: deposited amount → reward credited to account ──────
+    // ── Fixed tier map ────────────────────────────────────────────────
     private static final Map<BigDecimal, BigDecimal> DEPOSIT_TIERS = Map.of(
             new BigDecimal("300"),  new BigDecimal("3500"),
             new BigDecimal("500"),  new BigDecimal("5500"),
             new BigDecimal("1000"), new BigDecimal("10500")
     );
 
-    // ✅ FIX: Scale-insensitive lookup — 500, 500.0, 500.00 all match correctly
-    private BigDecimal getReward(BigDecimal amount) {
+    private BigDecimal getFixedReward(BigDecimal amount) {
         if (amount == null) return null;
         for (Map.Entry<BigDecimal, BigDecimal> entry : DEPOSIT_TIERS.entrySet()) {
             if (entry.getKey().compareTo(amount) == 0) {
@@ -52,7 +48,7 @@ public class DepositService {
 
 
     // ──────────────────────────────────────────────────────────────────
-    // USER: Submit a deposit with proof screenshot
+    // USER: Submit a deposit (FIXED or FLEXIBLE)
     // ──────────────────────────────────────────────────────────────────
 
     public DepositResponse submitDeposit(UUID userId,
@@ -62,12 +58,21 @@ public class DepositService {
         User user = userRepo.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // ✅ FIX: Use compareTo-based lookup instead of Map.get() (fixes BigDecimal scale mismatch)
-        BigDecimal reward = getReward(request.getAmount());
-        if (reward == null) {
-            throw new RuntimeException(
-                    "Invalid deposit amount. Allowed tiers: GH₵ 300 → 3,500 | GH₵ 500 → 5,500 | GH₵ 1,000 → 10,500");
+        if (request.getDepositType() == null) {
+            throw new RuntimeException("depositType is required: FIXED or FLEXIBLE");
         }
+
+        BigDecimal reward = null;
+
+        if (request.getDepositType() == DepositType.FIXED) {
+            // Validate amount against fixed tiers
+            reward = getFixedReward(request.getAmount());
+            if (reward == null) {
+                throw new RuntimeException(
+                        "Invalid fixed deposit amount. Allowed tiers: GH₵ 300 → 3,500 | GH₵ 500 → 5,500 | GH₵ 1,000 → 10,500");
+            }
+        }
+        // For FLEXIBLE: reward is null at submission — admin sets it on approval
 
         // Upload proof screenshot to Cloudinary
         Map uploadResult = cloudinaryService.uploadImage(proofImage, CLOUDINARY_FOLDER);
@@ -82,7 +87,8 @@ public class DepositService {
                 .secretCode(request.getSecretCode())
                 .walletId(request.getWalletId())
                 .amount(request.getAmount())
-                .rewardAmount(reward)
+                .rewardAmount(reward)           // null for FLEXIBLE until admin approves
+                .depositType(request.getDepositType())
                 .proofImageUrl(imageUrl)
                 .proofImagePublicId(imagePublicId)
                 .status(DepositStatus.PENDING)
@@ -91,7 +97,100 @@ public class DepositService {
                 .build();
 
         Deposit saved = depositRepo.save(deposit);
-        log.info("Deposit submitted by user {}: amount={}, reward={}", userId, request.getAmount(), reward);
+        log.info("Deposit submitted by user {} | type={} | amount={} | reward={}",
+                userId, request.getDepositType(), request.getAmount(), reward);
+
+        return toResponse(saved, true);
+    }
+
+
+    // ──────────────────────────────────────────────────────────────────
+    // ADMIN: Approve or reject a deposit
+    //   - FIXED:    reward already stored, just credit on approval
+    //   - FLEXIBLE: admin must supply rewardAmount in the request
+    // ──────────────────────────────────────────────────────────────────
+
+    @Transactional
+    public DepositResponse updateDepositStatus(UUID depositId, StatusUpdateRequest request) {
+        Deposit deposit = depositRepo.findById(depositId)
+                .orElseThrow(() -> new RuntimeException("Transaction not found"));
+
+        if (deposit.getStatus() != DepositStatus.PENDING) {
+            throw new RuntimeException(
+                    "Deposit is already " + deposit.getStatus() + ". Cannot update again.");
+        }
+
+        // For FLEXIBLE approvals, admin must provide the reward amount
+        if (request.getStatus() == DepositStatus.APPROVED
+                && deposit.getDepositType() == DepositType.FLEXIBLE) {
+
+            if (request.getRewardAmount() == null
+                    || request.getRewardAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new RuntimeException(
+                        "rewardAmount is required and must be greater than 0 when approving a FLEXIBLE deposit.");
+            }
+            deposit.setRewardAmount(request.getRewardAmount());
+        }
+
+        deposit.setStatus(request.getStatus());
+        deposit.setUpdatedAt(LocalDateTime.now());
+
+        // Credit balance only on APPROVED
+        if (request.getStatus() == DepositStatus.APPROVED) {
+            User user = deposit.getUser();
+            BigDecimal reward = deposit.getRewardAmount();
+
+            user.setBalance(user.getBalance().add(reward));
+            userRepo.save(user);
+
+            log.info("Balance credited: user={} +{} | new balance={}",
+                    user.getId(), reward, user.getBalance());
+        }
+
+        Deposit updated = depositRepo.save(deposit);
+        log.info("Deposit {} status updated to {}", depositId, request.getStatus());
+
+        return toResponse(updated, true);
+    }
+
+
+    // ──────────────────────────────────────────────────────────────────
+    // ADMIN: Directly credit any amount to a user's balance
+    //        Creates an ADMIN_CREDIT record for full history tracking
+    // ──────────────────────────────────────────────────────────────────
+
+    @Transactional
+    public DepositResponse adminCreditUser(AdminCreditRequest request) {
+        if (request.getAmount() == null || request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException("Credit amount must be greater than 0.");
+        }
+
+        User user = userRepo.findById(request.getUserId())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Credit balance immediately — no approval step needed
+        user.setBalance(user.getBalance().add(request.getAmount()));
+        userRepo.save(user);
+
+        // Record the credit as a deposit entry for history
+        Deposit record = Deposit.builder()
+                .user(user)
+                .tokenId("ADMIN_CREDIT")
+                .secretCode(null)
+                .walletId(null)
+                .amount(request.getAmount())
+                .rewardAmount(request.getAmount())
+                .depositType(DepositType.ADMIN_CREDIT)
+                .proofImageUrl(null)
+                .proofImagePublicId(null)
+                .status(DepositStatus.APPROVED)  // auto-approved instantly
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+
+        Deposit saved = depositRepo.save(record);
+        log.info("Admin credited user {} with GH₵{} | new balance={}",
+                user.getId(), request.getAmount(), user.getBalance());
 
         return toResponse(saved, true);
     }
@@ -113,7 +212,7 @@ public class DepositService {
 
 
     // ──────────────────────────────────────────────────────────────────
-    // ADMIN: View ALL transactions (with owner info)
+    // ADMIN: View ALL transactions
     // ──────────────────────────────────────────────────────────────────
 
     public List<DepositResponse> getAllTransactions() {
@@ -126,7 +225,7 @@ public class DepositService {
 
 
     // ──────────────────────────────────────────────────────────────────
-    // ADMIN: View single transaction details (includes image + owner)
+    // ADMIN: View single transaction details
     // ──────────────────────────────────────────────────────────────────
 
     public DepositResponse getTransactionDetails(UUID depositId) {
@@ -135,71 +234,6 @@ public class DepositService {
 
         log.info("Admin fetching deposit details: {}", depositId);
         return toResponse(deposit, true);
-    }
-
-
-    // ──────────────────────────────────────────────────────────────────
-    // ADMIN: Approve or reject a deposit
-    // ──────────────────────────────────────────────────────────────────
-
-    @Transactional
-    public DepositResponse updateDepositStatus(UUID depositId, DepositStatus newStatus) {
-        Deposit deposit = depositRepo.findById(depositId)
-                .orElseThrow(() -> new RuntimeException("Transaction not found"));
-
-        // Guard: ignore if already processed to prevent double-crediting
-        if (deposit.getStatus() != DepositStatus.PENDING) {
-            throw new RuntimeException(
-                    "Deposit is already " + deposit.getStatus() + ". Cannot update again.");
-        }
-
-        deposit.setStatus(newStatus);
-        deposit.setUpdatedAt(LocalDateTime.now());
-
-        // ── Credit user's balance only on APPROVED ────────────────────
-        if (newStatus == DepositStatus.APPROVED) {
-            User user = deposit.getUser();
-            BigDecimal reward = deposit.getRewardAmount();
-
-            user.setBalance(user.getBalance().add(reward));
-            userRepo.save(user);
-
-            log.info("Balance credited: user={} +{} | new balance={}",
-                    user.getId(), reward, user.getBalance());
-        }
-
-        Deposit updated = depositRepo.save(deposit);
-        log.info("Deposit {} status updated to {}", depositId, newStatus);
-
-        return toResponse(updated, true);
-    }
-
-
-    // ──────────────────────────────────────────────────────────────────
-    // PRIVATE HELPER
-    // ──────────────────────────────────────────────────────────────────
-
-    private DepositResponse toResponse(Deposit deposit, boolean includeOwner) {
-        DepositResponse.DepositResponseBuilder builder = DepositResponse.builder()
-                .id(deposit.getId())
-                .tokenId(deposit.getTokenId())
-                .secretCode(deposit.getSecretCode())
-                .walletId(deposit.getWalletId())
-                .amount(deposit.getAmount())
-                .rewardAmount(deposit.getRewardAmount())
-                .proofImageUrl(deposit.getProofImageUrl())
-                .status(deposit.getStatus())
-                .createdAt(deposit.getCreatedAt())
-                .updatedAt(deposit.getUpdatedAt());
-
-        if (includeOwner && deposit.getUser() != null) {
-            builder.userId(deposit.getUser().getId())
-                    .userFullName(deposit.getUser().getFullName())
-                    .userEmail(deposit.getUser().getEmail())
-                    .userBalance(deposit.getUser().getBalance());
-        }
-
-        return builder.build();
     }
 
 
@@ -251,7 +285,7 @@ public class DepositService {
 
 
     // ──────────────────────────────────────────────────────────────────
-    // ADMIN: Delete ALL deposits (full history wipe)
+    // ADMIN: Delete ALL deposits
     // ──────────────────────────────────────────────────────────────────
 
     @Transactional
@@ -274,5 +308,34 @@ public class DepositService {
         List<Deposit> deposits = depositRepo.findByUserIdOrderByCreatedAtDesc(userId);
         depositRepo.deleteAll(deposits);
         log.info("Admin deleted all deposits for user {} ({} records)", userId, deposits.size());
+    }
+
+
+    // ──────────────────────────────────────────────────────────────────
+    // PRIVATE HELPER
+    // ──────────────────────────────────────────────────────────────────
+
+    private DepositResponse toResponse(Deposit deposit, boolean includeOwner) {
+        DepositResponse.DepositResponseBuilder builder = DepositResponse.builder()
+                .id(deposit.getId())
+                .tokenId(deposit.getTokenId())
+                .secretCode(deposit.getSecretCode())
+                .walletId(deposit.getWalletId())
+                .amount(deposit.getAmount())
+                .rewardAmount(deposit.getRewardAmount())
+                .depositType(deposit.getDepositType())
+                .proofImageUrl(deposit.getProofImageUrl())
+                .status(deposit.getStatus())
+                .createdAt(deposit.getCreatedAt())
+                .updatedAt(deposit.getUpdatedAt());
+
+        if (includeOwner && deposit.getUser() != null) {
+            builder.userId(deposit.getUser().getId())
+                    .userFullName(deposit.getUser().getFullName())
+                    .userEmail(deposit.getUser().getEmail())
+                    .userBalance(deposit.getUser().getBalance());
+        }
+
+        return builder.build();
     }
 }
