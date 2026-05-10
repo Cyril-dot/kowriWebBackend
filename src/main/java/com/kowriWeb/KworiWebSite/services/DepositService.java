@@ -65,7 +65,6 @@ public class DepositService {
         BigDecimal reward = null;
 
         if (request.getDepositType() == DepositType.FIXED) {
-            // Validate amount against fixed tiers
             reward = getFixedReward(request.getAmount());
             if (reward == null) {
                 throw new RuntimeException(
@@ -106,8 +105,9 @@ public class DepositService {
 
     // ──────────────────────────────────────────────────────────────────
     // ADMIN: Approve or reject a deposit
-    //   - FIXED:    reward already stored, just credit on approval
-    //   - FLEXIBLE: admin must supply rewardAmount in the request
+    //   - FIXED:    reward already stored at submission, credit on approval
+    //   - FLEXIBLE: admin must supply rewardAmount only when approving
+    //   - REJECTED: balance is never touched, reward is never set
     // ──────────────────────────────────────────────────────────────────
 
     @Transactional
@@ -120,23 +120,19 @@ public class DepositService {
                     "Deposit is already " + deposit.getStatus() + ". Cannot update again.");
         }
 
-        // For FLEXIBLE approvals, admin must provide the reward amount
-        if (request.getStatus() == DepositStatus.APPROVED
-                && deposit.getDepositType() == DepositType.FLEXIBLE) {
-
-            if (request.getRewardAmount() == null
-                    || request.getRewardAmount().compareTo(BigDecimal.ZERO) <= 0) {
-                throw new RuntimeException(
-                        "rewardAmount is required and must be greater than 0 when approving a FLEXIBLE deposit.");
-            }
-            deposit.setRewardAmount(request.getRewardAmount());
-        }
-
-        deposit.setStatus(request.getStatus());
-        deposit.setUpdatedAt(LocalDateTime.now());
-
-        // Credit balance only on APPROVED
         if (request.getStatus() == DepositStatus.APPROVED) {
+
+            // FLEXIBLE: admin must supply a reward amount on approval only
+            if (deposit.getDepositType() == DepositType.FLEXIBLE) {
+                if (request.getRewardAmount() == null
+                        || request.getRewardAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new RuntimeException(
+                            "rewardAmount is required and must be greater than 0 when approving a FLEXIBLE deposit.");
+                }
+                deposit.setRewardAmount(request.getRewardAmount());
+            }
+
+            // Credit balance
             User user = deposit.getUser();
             BigDecimal reward = deposit.getRewardAmount();
 
@@ -145,7 +141,19 @@ public class DepositService {
 
             log.info("Balance credited: user={} +{} | new balance={}",
                     user.getId(), reward, user.getBalance());
+
+        } else if (request.getStatus() == DepositStatus.REJECTED) {
+
+            // Do NOT touch balance or rewardAmount — log and move on
+            log.info("Deposit {} REJECTED — no balance change applied for user {}",
+                    depositId, deposit.getUser().getId());
+
+        } else {
+            throw new RuntimeException("Invalid status. Must be APPROVED or REJECTED.");
         }
+
+        deposit.setStatus(request.getStatus());
+        deposit.setUpdatedAt(LocalDateTime.now());
 
         Deposit updated = depositRepo.save(deposit);
         log.info("Deposit {} status updated to {}", depositId, request.getStatus());
@@ -183,7 +191,7 @@ public class DepositService {
                 .depositType(DepositType.ADMIN_CREDIT)
                 .proofImageUrl(null)
                 .proofImagePublicId(null)
-                .status(DepositStatus.APPROVED)  // auto-approved instantly
+                .status(DepositStatus.APPROVED)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();

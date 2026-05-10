@@ -1,9 +1,13 @@
+// ═══════════════════════════════════════════════════════════
+// FILE: controller/AdminController.java
+// Admin-only endpoints
+// ═══════════════════════════════════════════════════════════
 package com.kowriWeb.KworiWebSite.controllers;
 
 import com.kowriWeb.KworiWebSite.dto.*;
-import com.kowriWeb.KworiWebSite.services.AdminService;
+import com.kowriWeb.KworiWebSite.entity.Role;
+import com.kowriWeb.KworiWebSite.services.UserService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -16,32 +20,48 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AdminController {
 
-    private final AdminService adminService;
+    private final UserService userService;
 
-    // ── Registration (protected by secret key inside service) ──────────
-    @PostMapping("/register")
-    public ResponseEntity<AdminResponse> register(@RequestBody CreateAdminRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(adminService.registerAdmin(request));
-    }
-
-    // ── Login ───────────────────────────────────────────────────────────
-    @PostMapping("/login")
-    public ResponseEntity<AdminLoginResponse> login(@RequestBody AdminLoginRequest request) {
-        return ResponseEntity.ok(adminService.adminLogin(request));
-    }
-
-    // ── View all users (ADMIN role required) ───────────────────────────
+    /** GET /api/admin/users  → list all users */
     @GetMapping("/users")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<List<UserSummaryResponse>> getAllUsers() {
-        return ResponseEntity.ok(adminService.getAllUsers());
+        return ResponseEntity.ok(userService.getAllUsers());
     }
 
-    // ── View single user details (ADMIN role required) ─────────────────
-    @GetMapping("/users/{userId}")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<UserResponse> getUserDetails(@PathVariable UUID userId) {
-        return ResponseEntity.ok(adminService.getUserDetails(userId));
+    /** GET /api/admin/users/role/{role}  → filter by role */
+    @GetMapping("/users/role/{role}")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<List<UserSummaryResponse>> getUsersByRole(@PathVariable Role role) {
+        return ResponseEntity.ok(userService.getUsersByRole(role));
+    }
+
+    /** GET /api/admin/users/{id}  → full user detail */
+    @GetMapping("/users/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
+    public ResponseEntity<UserResponse> getUserDetail(@PathVariable UUID id) {
+        return ResponseEntity.ok(userService.getUserById(id));
+    }
+
+    /**
+     * POST /api/admin/register
+     * SUPER_ADMIN creates a new ADMIN account.
+     */
+    @PostMapping("/register")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<UserResponse> registerAdmin(@RequestBody RegisterRequest request) {
+        return ResponseEntity.ok(userService.registerAdmin(request));
+    }
+
+    /**
+     * PATCH /api/admin/users/{id}/role
+     * SUPER_ADMIN promotes or demotes any user.
+     */
+    @PatchMapping("/users/{id}/role")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<UserResponse> changeRole(
+            @PathVariable UUID id,
+            @RequestBody ChangeRoleRequest request) {
+        return ResponseEntity.ok(userService.changeRole(id, request));
     }
 }

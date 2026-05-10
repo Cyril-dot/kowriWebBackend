@@ -15,9 +15,10 @@ public class UserResponse {
     private String fullName;
     private String email;
     private String phoneNumber;
-    private LocalDateTime createdAt;
     private Role role;
+    private BigDecimal balance;
+    private LocalDateTime createdAt;
+    // tokens only populated on register/login
     private String token;
     private String refreshToken;
-    private BigDecimal balance;   // ✅ ADD THIS
 }

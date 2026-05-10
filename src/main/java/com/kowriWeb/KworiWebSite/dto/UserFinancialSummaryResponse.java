@@ -1,7 +1,11 @@
+// ─────────────────────────────────────────────────────────
+// FILE: dto/UserFinancialSummaryResponse.java
+// ─────────────────────────────────────────────────────────
 package com.kowriWeb.KworiWebSite.dto;
 
 import lombok.Builder;
 import lombok.Data;
+
 import java.math.BigDecimal;
 
 @Data
