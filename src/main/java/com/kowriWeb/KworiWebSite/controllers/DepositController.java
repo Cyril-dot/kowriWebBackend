@@ -25,14 +25,12 @@ public class DepositController {
 
 
     // ════════════════════════════════════════════════════════════════════
-    // USER ENDPOINTS  —  /api/users/{userId}/deposits
+    // USER ENDPOINTS
     // ════════════════════════════════════════════════════════════════════
 
     /**
      * POST /api/users/{userId}/deposits
      * Submit a new deposit (FIXED or FLEXIBLE) with proof screenshot.
-     * FIXED:    amount must match a tier — reward is auto-set.
-     * FLEXIBLE: any amount — admin sets the reward on approval.
      */
     @PostMapping(
             value = "/api/users/{userId}/deposits",
@@ -50,9 +48,13 @@ public class DepositController {
 
     /**
      * GET /api/users/{userId}/deposits
+     * GET /api/deposits/{userId}/my-transactions  (frontend alias)
      * User views their own transaction history.
      */
-    @GetMapping("/api/users/{userId}/deposits")
+    @GetMapping({
+            "/api/users/{userId}/deposits",
+            "/api/deposits/{userId}/my-transactions"
+    })
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<List<DepositResponse>> getUserTransactions(
             @PathVariable UUID userId
@@ -89,14 +91,18 @@ public class DepositController {
 
 
     // ════════════════════════════════════════════════════════════════════
-    // ADMIN ENDPOINTS  —  /api/admin/deposits
+    // ADMIN ENDPOINTS
     // ════════════════════════════════════════════════════════════════════
 
     /**
      * GET /api/admin/deposits
+     * GET /api/deposits/all  (frontend alias)
      * Admin views ALL transactions across every user.
      */
-    @GetMapping("/api/admin/deposits")
+    @GetMapping({
+            "/api/admin/deposits",
+            "/api/deposits/all"
+    })
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<DepositResponse>> getAllTransactions() {
         return ResponseEntity.ok(depositService.getAllTransactions());
@@ -104,7 +110,7 @@ public class DepositController {
 
     /**
      * GET /api/admin/deposits/{depositId}
-     * Admin views full details of a single transaction (includes proof image URL + owner).
+     * Admin views full details of a single transaction.
      */
     @GetMapping("/api/admin/deposits/{depositId}")
     @PreAuthorize("hasRole('ADMIN')")
@@ -117,9 +123,9 @@ public class DepositController {
     /**
      * PATCH /api/admin/deposits/{depositId}/status
      * Admin approves or rejects a deposit.
-     * FIXED:    just send { "status": "APPROVED" } — reward already stored.
-     * FLEXIBLE: send { "status": "APPROVED", "rewardAmount": 1500 } — reward is required.
-     * REJECTED: send { "status": "REJECTED" } — works for both types.
+     * FIXED:    { "status": "APPROVED" }
+     * FLEXIBLE: { "status": "APPROVED", "rewardAmount": 1500 }
+     * REJECTED: { "status": "REJECTED" }
      */
     @PatchMapping("/api/admin/deposits/{depositId}/status")
     @PreAuthorize("hasRole('ADMIN')")
@@ -133,8 +139,6 @@ public class DepositController {
     /**
      * POST /api/admin/deposits/credit
      * Admin directly credits any amount to a user's balance immediately.
-     * No proof image, no approval flow — balance is updated instantly.
-     * Creates an ADMIN_CREDIT record for full history tracking.
      * Body: { "userId": "...", "amount": 500.00, "note": "bonus credit" }
      */
     @PostMapping("/api/admin/deposits/credit")
