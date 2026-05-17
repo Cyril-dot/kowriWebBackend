@@ -22,27 +22,22 @@ import java.util.stream.Collectors;
 @Slf4j
 public class UserService {
 
-    private final UserRepo       userRepo;
-    private final DepositRepo    depositRepo;
-    private final WithdrawalRepo withdrawalRepo;
+    private final UserRepo        userRepo;
+    private final DepositRepo     depositRepo;
+    private final WithdrawalRepo  withdrawalRepo;
     private final PasswordEncoder passwordEncoder;
-    private final TokenService   tokenService;
-
+    private final TokenService    tokenService;
 
     // ──────────────────────────────────────────
-    // REGISTER  (role supplied internally)
+    // REGISTER
     // ──────────────────────────────────────────
 
-    /**
-     * Public self-registration → role = USER
-     */
+    /** Public self-registration → role = USER */
     public UserResponse registerUser(RegisterRequest request) {
         return register(request, Role.USER);
     }
 
-    /**
-     * Called by a SUPER_ADMIN endpoint to create an admin account.
-     */
+    /** Called by a SUPER_ADMIN endpoint to create an admin account */
     public UserResponse registerAdmin(RegisterRequest request) {
         return register(request, Role.ADMIN);
     }
@@ -63,14 +58,13 @@ public class UserService {
                 .build();
 
         User saved = userRepo.save(user);
-        log.info("Registered {} → {}", role, saved.getEmail());
+        log.info("✅ Registered {} → {}", role, saved.getEmail());
 
         return buildAuthResponse(saved);
     }
 
-
     // ──────────────────────────────────────────
-    // LOGIN  (works for every role)
+    // LOGIN
     // ──────────────────────────────────────────
 
     public UserResponse login(LoginRequest request) {
@@ -81,10 +75,9 @@ public class UserService {
             throw new RuntimeException("Invalid credentials");
         }
 
-        log.info("Login: {} [{}]", user.getEmail(), user.getRole());
+        log.info("✅ Login: {} [{}]", user.getEmail(), user.getRole());
         return buildAuthResponse(user);
     }
-
 
     // ──────────────────────────────────────────
     // GET SINGLE USER
@@ -96,9 +89,8 @@ public class UserService {
         return toFullResponse(user);
     }
 
-
     // ──────────────────────────────────────────
-    // GET ALL USERS  (admin view)
+    // GET ALL USERS
     // ──────────────────────────────────────────
 
     public List<UserSummaryResponse> getAllUsers() {
@@ -114,7 +106,6 @@ public class UserService {
                 .map(this::toSummary)
                 .collect(Collectors.toList());
     }
-
 
     // ──────────────────────────────────────────
     // FINANCIAL SUMMARY
@@ -150,7 +141,6 @@ public class UserService {
                 .totalWithdrawn(totalWithdrawn)
                 .build();
     }
-
 
     // ──────────────────────────────────────────
     // UPDATE PROFILE
@@ -190,10 +180,9 @@ public class UserService {
 
         user.setUpdatedAt(LocalDateTime.now());
         User updated = userRepo.save(user);
-        log.info("User updated: {}", updated.getEmail());
+        log.info("✅ User updated: {}", updated.getEmail());
         return toFullResponse(updated);
     }
-
 
     // ──────────────────────────────────────────
     // CHANGE ROLE  (super-admin only)
@@ -204,10 +193,9 @@ public class UserService {
         user.setRole(request.getRole());
         user.setUpdatedAt(LocalDateTime.now());
         User updated = userRepo.save(user);
-        log.info("Role changed → {} for {}", updated.getRole(), updated.getEmail());
+        log.info("✅ Role changed → {} for {}", updated.getRole(), updated.getEmail());
         return toFullResponse(updated);
     }
-
 
     // ──────────────────────────────────────────
     // PRIVATE HELPERS
@@ -218,7 +206,6 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
     }
 
-    /** Builds the response that includes tokens (register / login). */
     private UserResponse buildAuthResponse(User user) {
         String accessToken  = tokenService.generateAccessToken(user);
         String refreshToken = tokenService.generateRefreshToken(user).getToken();
@@ -236,7 +223,6 @@ public class UserService {
                 .build();
     }
 
-    /** Full detail response without tokens. */
     private UserResponse toFullResponse(User user) {
         return UserResponse.builder()
                 .id(user.getId())
@@ -249,7 +235,6 @@ public class UserService {
                 .build();
     }
 
-    /** Lightweight list-item response. */
     private UserSummaryResponse toSummary(User user) {
         return UserSummaryResponse.builder()
                 .id(user.getId())

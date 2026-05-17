@@ -1,6 +1,5 @@
 package com.kowriWeb.KworiWebSite.Config.Security;
 
-import com.kowriWeb.KworiWebSite.entity.repos.AdminRepo;
 import com.kowriWeb.KworiWebSite.entity.repos.UserRepo;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -26,14 +25,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final TokenService tokenService;
     private final UserRepo userRepo;
-    private final AdminRepo adminRepo;
 
-    // ✅ FIXED: match your REAL endpoints
     private static final List<String> PUBLIC_ENDPOINTS = Arrays.asList(
-            "/api/users/register",
-            "/api/users/login",
-            "/api/admin/register",
-            "/api/admin/login",
+            "/api/auth/register",
+            "/api/auth/login",
             "/api/v1/payment/webhook",
             "/ping"
     );
@@ -76,7 +71,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             String header = request.getHeader("Authorization");
 
-            // ✅ No token → just continue (DON'T BLOCK)
             if (header == null || !header.startsWith("Bearer ")) {
                 log.warn("⚠️ No JWT token found for request: {}", path);
                 filterChain.doFilter(request, response);
@@ -85,34 +79,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             String token = header.substring(7);
             String email = tokenService.getEmailFromAccessToken(token);
-            String role  = tokenService.getRoleFromAccessToken(token);
 
-            log.info("🔍 Token parsed → Email: {}, Role: {}", email, role);
+            log.info("🔍 Token parsed → Email: {}", email);
 
-            UserDetails userDetails;
+            var userOptional = userRepo.findByEmail(email);
 
-            if ("ADMIN".equals(role) || "SELLER".equals(role)) {
-                var adminOptional = adminRepo.findByEmail(email);
-
-                if (adminOptional.isEmpty()) {
-                    log.warn("❌ Admin not found: {}", email);
-                    filterChain.doFilter(request, response);
-                    return;
-                }
-
-                userDetails = new AdminPrincipal(adminOptional.get());
-
-            } else {
-                var userOptional = userRepo.findByEmail(email);
-
-                if (userOptional.isEmpty()) {
-                    log.warn("❌ User not found: {}", email);
-                    filterChain.doFilter(request, response);
-                    return;
-                }
-
-                userDetails = new UserPrincipal(userOptional.get());
+            if (userOptional.isEmpty()) {
+                log.warn("❌ User not found: {}", email);
+                filterChain.doFilter(request, response);
+                return;
             }
+
+            UserDetails userDetails = new UserPrincipal(userOptional.get());
 
             UsernamePasswordAuthenticationToken authToken =
                     new UsernamePasswordAuthenticationToken(

@@ -1,4 +1,5 @@
 package com.kowriWeb.KworiWebSite.Config.Security;
+
 import com.kowriWeb.KworiWebSite.Config.Security.RateLimitingConfigs.RateLimitFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -42,14 +43,11 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/api/admin/register",
-                                "/api/admin/login",
-                                "/api/users/register",
-                                "/api/users/login",
+                                "/api/auth/register",
+                                "/api/auth/login",
                                 "/api/v1/payment/webhook",
                                 "/ping/**"
                         ).permitAll()
-                        .requestMatchers("/api/v1/payment/webhook").permitAll()
                         .anyRequest().authenticated()
                 )
 
@@ -70,8 +68,6 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // ✅ Prevents Spring Boot from auto-registering the filter a second time
-    // Spring Security already registers it above — this stops the duplicate
     @Bean
     public FilterRegistrationBean<JwtAuthenticationFilter> jwtFilterRegistration(
             JwtAuthenticationFilter filter) {

@@ -1,11 +1,11 @@
 package com.kowriWeb.KworiWebSite.Config.Security;
 
+import com.kowriWeb.KworiWebSite.entity.User;
 
-import com.kowriWeb.KworiWebSite.entity.*;
-import com.kowriWeb.KworiWebSite.entity.repos.AdminRepo;
 import com.kowriWeb.KworiWebSite.entity.repos.UserRepo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.lang.NonNull;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -17,31 +17,20 @@ import org.springframework.stereotype.Service;
 public class CustomUserDetailsService implements UserDetailsService {
 
     private final UserRepo userRepo;
-    private final AdminRepo adminRepo;
 
     @Override
-    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+    public UserDetails loadUserByUsername(@NonNull String email) throws UsernameNotFoundException {
 
         log.debug("🔍 Loading account by email: {}", email);
 
-        // 1️⃣ Check normal users first
-        var userOptional = userRepo.findByEmail(email);
-        if (userOptional.isPresent()) {
-            User user = userOptional.get();
-            log.debug("✅ User found: {}, Role: {}", user.getEmail(), user.getRole());
-            return new UserPrincipal(user);
-        }
-
-        // 2️⃣ If not user, check admin
-        var adminOptional = adminRepo.findByEmail(email);
-        if (adminOptional.isPresent()) {
-            Admin admin = adminOptional.get();
-            log.debug("✅ Admin found: {}", admin.getEmail());
-            return new AdminPrincipal(admin);
-        }
-
-        // 3️⃣ Not found anywhere
-        log.warn("❌ No account found with email: {}", email);
-        throw new UsernameNotFoundException("No user or admin found with email: " + email);
+        return userRepo.findByEmail(email)
+                .map(user -> {
+                    log.debug("✅ User found: {}, Role: {}", user.getEmail(), user.getRole());
+                    return (UserDetails) new UserPrincipal(user);
+                })
+                .orElseThrow(() -> {
+                    log.warn("❌ No account found with email: {}", email);
+                    return new UsernameNotFoundException("No user found with email: " + email);
+                });
     }
 }
