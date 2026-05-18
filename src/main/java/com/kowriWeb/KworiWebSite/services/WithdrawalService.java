@@ -151,35 +151,26 @@ public class WithdrawalService {
         if (newStatus == WithdrawalStatus.APPROVED) {
             User user = withdrawal.getUser();
             if (user.getBalance().compareTo(BigDecimal.ZERO) < 0) {
-                // Balance is negative — refund and auto-reject instead of approving
-                user.setBalance(user.getBalance().add(withdrawal.getAmount()));
-                userRepo.save(user);
+                // Balance is negative — auto-reject without refunding
                 withdrawal.setStatus(WithdrawalStatus.REJECTED);
                 withdrawal.setUpdatedAt(LocalDateTime.now());
                 withdrawalRepo.save(withdrawal);
-                log.warn("Approval blocked — negative balance detected. Auto-rejected & refunded: user={} +{} | new balance={}",
-                        user.getId(), withdrawal.getAmount(), user.getBalance());
+                log.warn("Approval blocked — negative balance detected. Auto-rejected (no refund): user={} | balance={}",
+                        user.getId(), user.getBalance());
                 throw new RuntimeException(
-                        "Cannot approve: user has insufficient balance. Withdrawal has been auto-rejected and the amount refunded.");
+                        "Cannot approve: user has insufficient balance. Withdrawal has been auto-rejected. The deducted amount is NOT refunded.");
             }
         }
 
         withdrawal.setStatus(newStatus);
         withdrawal.setUpdatedAt(LocalDateTime.now());
 
-        // ── On REJECTED: refund the reserved amount back to the user ──
-        if (newStatus == WithdrawalStatus.REJECTED) {
-            User user = withdrawal.getUser();
-            user.setBalance(user.getBalance().add(withdrawal.getAmount()));
-            userRepo.save(user);
-
-            log.info("Withdrawal rejected — balance refunded: user={} +{} | new balance={}",
-                    user.getId(), withdrawal.getAmount(), user.getBalance());
-        }
-        // APPROVED: amount was already deducted at submission, nothing more to do
+        // Amount was already deducted at submission time.
+        // Whether APPROVED or REJECTED, the balance is NOT refunded — the deduction is permanent.
 
         Withdrawal updated = withdrawalRepo.save(withdrawal);
-        log.info("Withdrawal {} status updated to {}", withdrawalId, newStatus);
+        log.info("Withdrawal {} status updated to {} (no balance change — already deducted at submission)",
+                withdrawalId, newStatus);
 
         return toResponse(updated, true);
     }
@@ -225,14 +216,7 @@ public class WithdrawalService {
             throw new RuntimeException("Access denied. This withdrawal does not belong to you.");
         }
 
-        if (withdrawal.getStatus() == WithdrawalStatus.PENDING) {
-            User user = withdrawal.getUser();
-            user.setBalance(user.getBalance().add(withdrawal.getAmount()));
-            userRepo.save(user);
-            log.info("Pending withdrawal deleted — balance refunded: user={} +{} | new balance={}",
-                    userId, withdrawal.getAmount(), user.getBalance());
-        }
-
+        // NOTE: No refund on delete — balance was permanently deducted at submission.
         withdrawalRepo.delete(withdrawal);
         log.info("User {} deleted their withdrawal {}", userId, withdrawalId);
     }
@@ -249,16 +233,7 @@ public class WithdrawalService {
 
         List<Withdrawal> withdrawals = withdrawalRepo.findByUserIdOrderByCreatedAtDesc(userId);
 
-        for (Withdrawal w : withdrawals) {
-            if (w.getStatus() == WithdrawalStatus.PENDING) {
-                User user = w.getUser();
-                user.setBalance(user.getBalance().add(w.getAmount()));
-                userRepo.save(user);
-                log.info("Refunded pending withdrawal {} for user {} | +{}",
-                        w.getId(), userId, w.getAmount());
-            }
-        }
-
+        // NOTE: No refunds — balance was permanently deducted at submission regardless of status.
         withdrawalRepo.deleteAll(withdrawals);
         log.info("User {} deleted all their withdrawals ({} records)", userId, withdrawals.size());
     }
@@ -273,14 +248,7 @@ public class WithdrawalService {
         Withdrawal withdrawal = withdrawalRepo.findById(withdrawalId)
                 .orElseThrow(() -> new RuntimeException("Withdrawal not found"));
 
-        if (withdrawal.getStatus() == WithdrawalStatus.PENDING) {
-            User user = withdrawal.getUser();
-            user.setBalance(user.getBalance().add(withdrawal.getAmount()));
-            userRepo.save(user);
-            log.info("Admin deleted pending withdrawal — balance refunded: user={} +{} | new balance={}",
-                    user.getId(), withdrawal.getAmount(), user.getBalance());
-        }
-
+        // NOTE: No refund — balance was permanently deducted at submission.
         withdrawalRepo.delete(withdrawal);
         log.info("Admin deleted withdrawal {}", withdrawalId);
     }
@@ -294,16 +262,7 @@ public class WithdrawalService {
     public void adminDeleteAllWithdrawals() {
         List<Withdrawal> all = withdrawalRepo.findAllByOrderByCreatedAtDesc();
 
-        for (Withdrawal w : all) {
-            if (w.getStatus() == WithdrawalStatus.PENDING) {
-                User user = w.getUser();
-                user.setBalance(user.getBalance().add(w.getAmount()));
-                userRepo.save(user);
-                log.info("Refunded pending withdrawal {} during admin wipe | user={} +{}",
-                        w.getId(), user.getId(), w.getAmount());
-            }
-        }
-
+        // NOTE: No refunds — balances were permanently deducted at submission.
         withdrawalRepo.deleteAll(all);
         log.info("Admin wiped entire withdrawal history ({} records)", all.size());
     }
@@ -320,16 +279,7 @@ public class WithdrawalService {
 
         List<Withdrawal> withdrawals = withdrawalRepo.findByUserIdOrderByCreatedAtDesc(userId);
 
-        for (Withdrawal w : withdrawals) {
-            if (w.getStatus() == WithdrawalStatus.PENDING) {
-                User user = w.getUser();
-                user.setBalance(user.getBalance().add(w.getAmount()));
-                userRepo.save(user);
-                log.info("Refunded pending withdrawal {} during admin user-wipe | user={} +{}",
-                        w.getId(), userId, w.getAmount());
-            }
-        }
-
+        // NOTE: No refunds — balances were permanently deducted at submission.
         withdrawalRepo.deleteAll(withdrawals);
         log.info("Admin deleted all withdrawals for user {} ({} records)", userId, withdrawals.size());
     }
