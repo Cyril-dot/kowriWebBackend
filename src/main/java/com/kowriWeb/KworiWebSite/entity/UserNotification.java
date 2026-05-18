@@ -4,23 +4,21 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
-/**
- * One row per (user, notification) pair.
- * Lets us track whether each user has read each notification.
- */
 @Entity
-@Data
-@AllArgsConstructor
+@Table(name = "user_notifications")
+@Getter
+@Setter
 @NoArgsConstructor
+@AllArgsConstructor
 @Builder
-@Table(name = "user_notifications",
-       uniqueConstraints = @UniqueConstraint(columnNames = {"user_id", "notification_id"}))
 public class UserNotification {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -31,11 +29,20 @@ public class UserNotification {
     @JoinColumn(name = "notification_id", nullable = false)
     private Notification notification;
 
-    @Builder.Default
-    private boolean read = false;
+    @Column(nullable = false)
+    private boolean read;
 
     private LocalDateTime readAt;
 
+    @Column(nullable = false)
+    private LocalDateTime createdAt;
+
+    /** All replies on this user↔notification thread (user replies + admin replies). */
+    @OneToMany(mappedBy = "userNotification",
+               cascade = CascadeType.ALL,
+               orphanRemoval = true,
+               fetch = FetchType.LAZY)
     @Builder.Default
-    private LocalDateTime createdAt = LocalDateTime.now();
+    @OrderBy("createdAt ASC")
+    private List<MessageReply> replies = new ArrayList<>();
 }

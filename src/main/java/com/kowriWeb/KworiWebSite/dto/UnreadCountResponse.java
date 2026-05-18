@@ -1,6 +1,3 @@
-// ═══════════════════════════════════════════════════════════
-// FILE: dto/UnreadCountResponse.java
-// ═══════════════════════════════════════════════════════════
 package com.kowriWeb.KworiWebSite.dto;
 
 import lombok.AllArgsConstructor;
