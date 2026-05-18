@@ -152,10 +152,21 @@ public class NotificationService {
     // ──────────────────────────────────────────────────────────────
 
     public List<NotificationResponse> getAllNotifications() {
-        log.info("Admin fetching all notifications");
         return notificationRepo.findAllByOrderByCreatedAtDesc()
                 .stream()
-                .map(n -> toResponse(n, false, null, null, null))
+                .map(n -> {
+                    UUID unId = null;
+                    if (n.isPrivateMessage()) {
+                        List<UserNotification> uns = userNotificationRepo.findByNotificationId(n.getId());
+                        if (!uns.isEmpty()) {
+                            unId = uns.get(0).getId();
+                            log.info("Admin notifications list — notif {} mapped to userNotificationId {}", n.getId(), unId);
+                        } else {
+                            log.warn("Admin notifications list — private notif {} has no UserNotification row", n.getId());
+                        }
+                    }
+                    return toResponse(n, false, null, unId, null);
+                })
                 .collect(Collectors.toList());
     }
 
